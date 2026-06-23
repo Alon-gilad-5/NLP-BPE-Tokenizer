@@ -1,0 +1,20 @@
+# Large raw training corpora (course-provided; too big for git history)
+data/domain_1_train.txt
+data/domain_2_train.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# uv / virtualenv
+.venv/
+venv/
+
+# NER model outputs
+models/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
