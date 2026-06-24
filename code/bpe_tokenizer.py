@@ -97,10 +97,15 @@ def bytes_to_unicode() -> Dict[int, str]:
 
 class BPETokenizer(BaseTokenizer):
     def __init__(self, vocab_size: int = 10000,
-                 num_bigram_merges: int = DEFAULT_NUM_BIGRAM_MERGES):
+                 num_bigram_merges: int = DEFAULT_NUM_BIGRAM_MERGES,
+                 use_pretok: bool = True):
         super().__init__()
         self.vocab_size = vocab_size
         self.num_bigram_merges = num_bigram_merges
+        # When True, pre-tokenize with the GPT-2 regex (splits punctuation /
+        # mentions / contractions off words). When False, split on spaces only
+        # (the marker attaches to the following word). Both keep decode faithful.
+        self.use_pretok = use_pretok
 
         # Byte <-> unicode-surface maps (plain dicts -> picklable).
         self.byte_encoder = bytes_to_unicode()
@@ -143,13 +148,31 @@ class BPETokenizer(BaseTokenizer):
         space inside a piece becomes the space marker (byte 0x20 -> 'Ġ'); the
         first word of a line carries no leading marker.
         """
-        units: List[List[str]] = []
-        for piece in _GPT2_PAT.findall(text):
-            if not piece:
-                continue
-            symbols = [self.byte_encoder[b] for b in piece.encode("utf-8")]
-            if symbols:
-                units.append(symbols)
+        if getattr(self, "use_pretok", True):
+            units: List[List[str]] = []
+            for piece in _GPT2_PAT.findall(text):
+                if not piece:
+                    continue
+                symbols = [self.byte_encoder[b] for b in piece.encode("utf-8")]
+                if symbols:
+                    units.append(symbols)
+            return units
+
+        # Space-split fallback: a new unit begins at every space marker, so the
+        # marker stays attached to the FOLLOWING word and the first word carries
+        # no leading marker. Still a faithful partition of the text.
+        symbols = [self.byte_encoder[b] for b in text.encode("utf-8")]
+        units = []
+        cur: List[str] = []
+        for s in symbols:
+            if s == self.space_token:
+                if cur:
+                    units.append(cur)
+                cur = [s]
+            else:
+                cur.append(s)
+        if cur:
+            units.append(cur)
         return units
 
     def _token_surface(self, token: str) -> str:
@@ -384,3 +407,6 @@ class BPETokenizer(BaseTokenizer):
         self.__dict__.update(state)
         if not hasattr(self, "_cache") or self._cache is None:
             self._cache = {}
+        # Pickles trained before use_pretok existed were pretok-only.
+        if not hasattr(self, "use_pretok"):
+            self.use_pretok = True
