@@ -1,0 +1,11 @@
+# Commands used to train and save the three tokenizers.
+# Run from the repository root, inside the uv environment (after `bash init.sh`).
+# Requires the full corpora data/domain_1_train.txt and data/domain_2_train.txt.
+#
+# Defaults reproduce the submitted tokenizers:
+#   vocab_size = 5000
+#   tokenizer_1 -> domain_1_train.txt
+#   tokenizer_2 -> domain_2_train.txt
+#   tokenizer_3 -> domain_1_train.txt + domain_2_train.txt (combined)
+
+uv run python generate_tokenizers.py
