@@ -1,14 +1,21 @@
-# Commands used to train and save the three tokenizers.
-# Run from the repository root, inside the uv environment (after `bash init.sh`).
-# Requires the full corpora data/domain_1_train.txt and data/domain_2_train.txt.
-#
-# vocab_size = 2000 was chosen so the noisy domain-1 NER clears the F1 gate
-# (smaller, more frequent subword units generalize better on that sparse data).
+# Commands to reproduce trained_tokenizers/tokenizer_{1,2,3}.pkl.
+# Run from the repository root, in order, inside the uv environment
+# (after `bash init.sh`), with the full corpora present in data/.
 # Tokenizer settings (GPT-2 pre-tokenization, 1 cross-word bigram) are the
-# defaults in code/bpe_tokenizer.py.
+# defaults in code/bpe_tokenizer.py; per-tokenizer vocab differs (see below).
 #
-#   tokenizer_1 -> domain_1_train.txt
-#   tokenizer_2 -> domain_2_train.txt
-#   tokenizer_3 -> domain_1_train.txt + domain_2_train.txt (combined)
+# WHY per-tokenizer vocab: domain-1 NER only clears the F1 gate at a small vocab
+# (sharp peak at 2000; larger/smaller drop below 0.5). Domains 2/3 have no such
+# constraint, so they use a larger vocab (8000) for much better tokens/char.
 
+# --- tokenizer_1: vocab 2000 (keep only tokenizer_1 from this run) ---
 uv run python generate_tokenizers.py --vocab_size 2000
+
+# --- tokenizers 2 & 3: vocab 8000 ---
+# tokenizer_3 trains on a 50/50 balanced mix (domain_1 capped to domain_2's
+# size) to de-skew from the 80% tweet majority -> a more neutral vocab for the
+# hidden domain. BPE is order-independent, so file order here does not matter.
+head -n 319696 data/domain_1_train.txt > data/domain_1_bal.txt
+uv run python generate_tokenizers.py --vocab_size 8000 --train_files_3 domain_1_bal.txt domain_2_train.txt --output_dir _tmp8k
+cp _tmp8k/tokenizer_2.pkl trained_tokenizers/tokenizer_2.pkl
+cp _tmp8k/tokenizer_3.pkl trained_tokenizers/tokenizer_3.pkl

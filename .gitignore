@@ -1,6 +1,10 @@
 # Large raw training corpora (course-provided; too big for git history)
 data/domain_1_train.txt
 data/domain_2_train.txt
+# Derived balanced split for tokenizer_3 (recreated by train_commands.txt)
+data/domain_1_bal.txt
+# Temp output dir used by train_commands.txt second pass
+_tmp8k/
 
 # Python
 __pycache__/
