@@ -45,7 +45,22 @@ import heapq
 from collections import Counter, defaultdict
 from typing import Dict, List, Tuple
 
+import regex  # supports \p{L} / \p{N}; declared in pyproject.toml
+
 from base_tokenizer import BaseTokenizer
+
+# GPT-2's pre-tokenization pattern. It is a FAITHFUL PARTITION of the text:
+# regex.findall over it concatenates back to the original string exactly
+# (every char is a letter run, number run, other-symbol run, or whitespace run,
+# each optionally carrying one leading space). Splitting trailing punctuation,
+# @-mentions, #-hashtags and contractions off words makes an entity word
+# tokenize identically whether written "London", "London!", "London..." or
+# "@London" -- one stable, frequently-updated embedding instead of many rare
+# fragments. That consistency is the lever for entity *recall* on noisy text.
+# Compiled at module level so it is never part of the pickled instance state.
+_GPT2_PAT = regex.compile(
+    r"""'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+)
 
 
 # Default number of cross-word merges (bigrams). 1 is the safe minimum that
@@ -117,25 +132,44 @@ class BPETokenizer(BaseTokenizer):
 
     # -------------------------------------------------------------- pre-token
     def _text_to_units(self, text: str) -> List[List[str]]:
-        """Map text -> byte symbols, split into word-units at each space marker.
+        """Pre-tokenize text into word-units using the GPT-2 regex, then map
+        each unit's bytes to base symbols.
 
-        A new unit begins at every space marker, so the marker stays attached to
-        the FOLLOWING word (GPT-2 convention) and the first word carries no
-        leading marker. This keeps surfaces a faithful partition of the text.
+        The regex is a faithful partition of `text`, so concatenating every
+        unit's surface reproduces the input exactly (the property the NER
+        offset alignment and strict reconstruction depend on). Punctuation,
+        mentions, hashtags and contractions are split off, so an entity word is
+        tokenized consistently regardless of the noise attached to it. A leading
+        space inside a piece becomes the space marker (byte 0x20 -> 'Ġ'); the
+        first word of a line carries no leading marker.
         """
-        symbols = [self.byte_encoder[b] for b in text.encode("utf-8")]
         units: List[List[str]] = []
-        cur: List[str] = []
-        for s in symbols:
-            if s == self.space_token:
-                if cur:
-                    units.append(cur)
-                cur = [s]
-            else:
-                cur.append(s)
-        if cur:
-            units.append(cur)
+        for piece in _GPT2_PAT.findall(text):
+            if not piece:
+                continue
+            symbols = [self.byte_encoder[b] for b in piece.encode("utf-8")]
+            if symbols:
+                units.append(symbols)
         return units
+
+    def _token_surface(self, token: str) -> str:
+        """Decode one vocab token back to its raw text (marker -> space)."""
+        try:
+            return bytes(self.byte_decoder[c] for c in token).decode(
+                "utf-8", errors="replace"
+            )
+        except KeyError:
+            return ""
+
+    def _is_word_token(self, token: str) -> bool:
+        """True if the token is a whole word with a leading space: ' word'.
+
+        Used to keep cross-word bigrams clean -- both sides must be real
+        alphabetic words (not punctuation, mentions, or lone spaces), so the
+        learned bigram is an F1-safe function-word pair, not 'word + .'.
+        """
+        surf = self._token_surface(token)
+        return surf.startswith(" ") and surf.strip().isalpha()
 
     # ------------------------------------------------------------ merge logic
     @staticmethod
@@ -294,7 +328,6 @@ class BPETokenizer(BaseTokenizer):
         #    FAIL the submission checker's bigram test and disqualify the
         #    tokenizer. Both-words-only guarantees the merged token contains an
         #    internal space (after marker->space) and is a real word-word bigram.
-        sp = self.space_token
         cross_counts: Dict[Tuple[str, str], int] = defaultdict(int)
         for line in texts:
             line = line.rstrip("\n").rstrip("\r")
@@ -303,8 +336,7 @@ class BPETokenizer(BaseTokenizer):
             for u in units:
                 flat.extend(self._encode_unit(tuple(u)))
             for a, b in zip(flat, flat[1:]):
-                if (a.startswith(sp) and len(a) > len(sp)
-                        and b.startswith(sp) and len(b) > len(sp)):
+                if self._is_word_token(a) and self._is_word_token(b):
                     cross_counts[(a, b)] += 1
 
         if cross_counts:
