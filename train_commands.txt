@@ -2,10 +2,13 @@
 # Run from the repository root, inside the uv environment (after `bash init.sh`).
 # Requires the full corpora data/domain_1_train.txt and data/domain_2_train.txt.
 #
-# Defaults reproduce the submitted tokenizers:
-#   vocab_size = 5000
+# vocab_size = 2000 was chosen so the noisy domain-1 NER clears the F1 gate
+# (smaller, more frequent subword units generalize better on that sparse data).
+# Tokenizer settings (GPT-2 pre-tokenization, 1 cross-word bigram) are the
+# defaults in code/bpe_tokenizer.py.
+#
 #   tokenizer_1 -> domain_1_train.txt
 #   tokenizer_2 -> domain_2_train.txt
 #   tokenizer_3 -> domain_1_train.txt + domain_2_train.txt (combined)
 
-uv run python generate_tokenizers.py
+uv run python generate_tokenizers.py --vocab_size 2000
